@@ -9,8 +9,6 @@ import numpy as np
 from pandas.core.common import flatten
 
 
-
-
 load_dotenv()
 
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -19,19 +17,19 @@ APP_TOKEN = tk.request_client_token(CLIENT_ID, CLIENT_SECRET)
 
 spotify = tk.Spotify(APP_TOKEN)
 
-def chunkerize(iterable,chunksize : int):
-    """Split an iterable into smaller chunks of a given size.
-    """
+
+def chunkerize(iterable, chunksize: int):
+    """Split an iterable into smaller chunks of a given size."""
     iterable = list(iterable)
-    
+
     # if any(not hasattr(iterable,attr) for attr in ["__iter__","__len__"]):
     #     raise TypeError("msg")
 
-    
-    return  [
+    return [
         iterable[i * chunksize : (i + 1) * chunksize]
         for i in range((len(iterable) + chunksize - 1) // chunksize)
-        ]
+    ]
+
 
 def _unnest_lists(df: pd.DataFrame):
     """Used to "explode" lists in audio analysis segements dataframe."""
@@ -77,41 +75,35 @@ def get_artist_ids(playlist_id):
     track_ids = [t.track.id for t in tracks]
     artists = [t.track.artists for t in tracks]
     artists = [[a.id for a in artist] for artist in artists]
-    
 
     return dict(zip(track_ids, artists))
 
 
 def get_track_genres_by_artist(playlist_id):
-    """ NOTE: We need to be specific about this. An artist has genres associated with it. A track does not.\n
+    """NOTE: We need to be specific about this. An artist has genres associated with it. A track does not.\n
     For the purpose of this we will have to assume essentially that all tracks by an artist are of the \n
     same subset of genre.
-    
+
     _______________________________________________________________________________________________________
-    
+
     Returns: List of tuples - (track_id , genres)
     """
 
     track_artist_dict = get_artist_ids(playlist_id)
-   
-
 
     artist_genres = {}
     for chunk in chunkerize(flatten(track_artist_dict.values()), 50):
         results = spotify.artists(chunk)
-        
-        artist_genres.update({artist.id:tuple(artist.genres) for artist in results})
-   
 
-
+        artist_genres.update({artist.id: tuple(artist.genres) for artist in results})
 
     track_genres = {}
-    
-    #TODO 
-    #refactor this 
+
+    # TODO
+    # refactor this
     for track, artist_list in track_artist_dict.items():
         genres = set()
-        
+
         for artist in artist_list:
             for genre in artist_genres[artist]:
                 genres.add(genre)
@@ -124,7 +116,7 @@ def get_track_genres_by_artist(playlist_id):
     that the model views indie rock as more similar to scottish rock than it does classical.
     """
 
-            
+
 def build_segment_data(playlist_id):
 
     # TODO Label segment data against genres associated with albums
@@ -139,7 +131,7 @@ def get_audio_features(playlist_id):
 
     # Split into 100 track chunks
     chunks = chunkerize(track_ids, 100)
-    
+
     response_chunks = [spotify.tracks_audio_features(chunk) for chunk in chunks]
     return pd.DataFrame(flatten(response_chunks))
 
@@ -162,7 +154,4 @@ if __name__ == "__main__":
     # d=get_album_genres(a)
     # print(d)
 
-    
-
     get_track_genres_by_artist(pl)
-
