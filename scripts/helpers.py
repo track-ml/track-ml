@@ -171,10 +171,20 @@ def build_audio_features_data(playlist_list: list):
 
     return genre_frame.merge(
         audio_features, how="inner", left_index=True, right_index=True
+
     )
+
+def aggregate_genres(track_audio_data):
+    data = pd.DataFrame(columns=[col for col in track_audio_data.columns if not track_audio_data[col].isnull().any()])
+    for col in track_audio_data.columns:
+        if track_audio_data[col].isnull().any():
+            data.loc[col] = track_audio_data[track_audio_data[col].notnull()].aggregate(func='mean')
+    return data
+
 
 
 if __name__ == "__main__":
     pl = "4rnleEAOdmFAbRcNCgZMpY"
     playlist_list = [pl]
-    build_audio_features_data(playlist_list)
+    audio = build_audio_features_data(playlist_list)
+
