@@ -1,0 +1,3 @@
+Would be interesting to look at the distribution of the audio features of individual artists. 
+
+The clustering algos will perform better the lower variance in audio features between their tracks.

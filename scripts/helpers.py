@@ -3,11 +3,11 @@ from dotenv import load_dotenv
 import os
 import pandas as pd
 import time
-from tekore._client.api import artist
+from tekore._client.api import artist, playlist
 from tekore._model.track import Tracks
 import numpy as np
 from pandas.core.common import flatten
-
+from itertools import chain
 
 load_dotenv()
 
@@ -73,6 +73,7 @@ def get_artist_ids(playlist_id):
     playlist = spotify.playlist(playlist_id)
     tracks = playlist.tracks.items
     track_ids = [t.track.id for t in tracks]
+    print(len(track_ids))
     artists = [t.track.artists for t in tracks]
     artists = [[a.id for a in artist] for artist in artists]
 
@@ -83,21 +84,19 @@ def get_track_genres_by_artist(playlist_id):
     """NOTE: We need to be specific about this. An artist has genres associated with it. A track does not.\n
     For the purpose of this we will have to assume essentially that all tracks by an artist are of the \n
     same subset of genre.
-
-    _______________________________________________________________________________________________________
-
-    Returns: List of tuples - (track_id , genres)
+    \n_______________________________________________________________________________________________________
+    Returns: Dict - (track_id , genres)
     """
 
     track_artist_dict = get_artist_ids(playlist_id)
+    print(len(track_artist_dict))
+    track_genres = {}
 
     artist_genres = {}
     for chunk in chunkerize(flatten(track_artist_dict.values()), 50):
         results = spotify.artists(chunk)
 
         artist_genres.update({artist.id: tuple(artist.genres) for artist in results})
-
-    track_genres = {}
 
     # TODO
     # refactor this
@@ -109,12 +108,9 @@ def get_track_genres_by_artist(playlist_id):
                 genres.add(genre)
         track_genres[track] = genres
 
-    print(track_genres)
-
-    """
-    Data note : we probably will want to filter out alot of the obscure categories. We will need some way\n
-    that the model views indie rock as more similar to scottish rock than it does classical.
-    """
+    return track_genres
+    # Data note : we probably will want to filter out alot of the obscure categories. We will need some way\n
+    # that the model views indie rock as more similar to scottish rock than it does classical.
 
 
 def build_segment_data(playlist_id):
@@ -147,11 +143,38 @@ def get_album_genres(album_ids):
     return list(zip(album_ids, genres))
 
 
+# TODO recode this
+# This function is written like absolute shite
+def build_audio_features_data(playlist_list: list):
+    """Build a one-hot encoded dataframe for audio features."""
+
+    playlist_dict_list = [
+        get_track_genres_by_artist(playlist_id) for playlist_id in playlist_list
+    ]
+    track_genres = {k: v for x in playlist_dict_list for k, v in x.items()}
+    genres = set(chain.from_iterable(track_genres.values()))
+    genre_frame = pd.DataFrame(columns=list(genres))
+
+    for id, genre_list in track_genres.items():
+        for genre in genre_list:
+            genre_frame.loc[id, genre] = 1
+    genre_frame.drop_duplicates()
+
+    audio_features = pd.concat(
+        [get_audio_features(playlist_id) for playlist_id in playlist_list]
+    )
+    audio_features.drop(
+        columns=["analysis_url", "track_href", "type", "uri"], inplace=True
+    )
+    audio_features.set_index("id", inplace=True)
+    audio_features.drop_duplicates(inplace=True)
+
+    return genre_frame.merge(
+        audio_features, how="inner", left_index=True, right_index=True
+    )
+
+
 if __name__ == "__main__":
-    pl = "37i9dQZF1DWYz61oV0Yc4H"
-
-    # a= get_album_ids(pl)
-    # d=get_album_genres(a)
-    # print(d)
-
-    get_track_genres_by_artist(pl)
+    pl = "4rnleEAOdmFAbRcNCgZMpY"
+    playlist_list = [pl]
+    build_audio_features_data(playlist_list)
