@@ -1,3 +1,4 @@
+from logging import exception
 import tekore as tk
 from dotenv import load_dotenv
 import os
@@ -8,14 +9,75 @@ from tekore._model.track import Tracks
 import numpy as np
 from pandas.core.common import flatten
 from itertools import chain
+import requests
 
 load_dotenv()
 
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 APP_TOKEN = tk.request_client_token(CLIENT_ID, CLIENT_SECRET)
+AUTH_URL = "https://accounts.spotify.com/api/token"
+BASE_URL = "https://api.spotify.com/v1/"
+
 
 spotify = tk.Spotify(APP_TOKEN)
+
+
+def get_token():
+
+    # POST
+    auth_response = requests.post(
+        AUTH_URL,
+        {
+            "grant_type": "client_credentials",
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+        },
+    )
+
+    # convert the response to JSON
+    auth_response_data = auth_response.json()
+
+    # save the access token
+    return auth_response_data["access_token"]
+
+
+def get_headers(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+def get_track_ids(playlist_id):
+
+    trackset = []
+    token = get_token()
+    headers = get_headers(token)
+
+    r = requests.get(
+        "".join(
+            [
+                BASE_URL,
+                "playlists/",
+                playlist_id,
+            ]
+        ),
+        headers=headers,
+    )
+    r = r.json()["tracks"]
+
+    while r["next"]:
+        try:
+            tracks = {t["track"]["id"] for t in r["items"]}
+            trackset.append(tracks)
+        except TypeError:
+            pass
+
+        r = requests.get(r["next"], headers=headers)
+        if r.status_code == 200:
+            r = r.json()
+            continue
+        raise r.raise_for_status()
+
+    return list(flatten(trackset))
 
 
 def chunkerize(iterable, chunksize: int):
@@ -52,12 +114,15 @@ def create_sample(track_id):
     return df
 
 
-def get_track_ids(playlist_id):
+# TODO
+# #Redo this without using tekore
 
-    playlist = spotify.playlist(playlist_id)
-    tracks = playlist.tracks.items
+# def get_track_ids(playlist_id):
 
-    return [t.track.id for t in tracks]
+#     playlist = spotify.playlist(playlist_id)
+#     tracks = playlist.tracks.items
+
+#     return [t.track.id for t in tracks]
 
 
 def get_album_ids(playlist_id):
@@ -73,7 +138,6 @@ def get_artist_ids(playlist_id):
     playlist = spotify.playlist(playlist_id)
     tracks = playlist.tracks.items
     track_ids = [t.track.id for t in tracks]
-    print(len(track_ids))
     artists = [t.track.artists for t in tracks]
     artists = [[a.id for a in artist] for artist in artists]
 
@@ -89,9 +153,7 @@ def get_track_genres_by_artist(playlist_id):
     """
 
     track_artist_dict = get_artist_ids(playlist_id)
-    print(len(track_artist_dict))
     track_genres = {}
-
     artist_genres = {}
     for chunk in chunkerize(flatten(track_artist_dict.values()), 50):
         results = spotify.artists(chunk)
@@ -171,20 +233,28 @@ def build_audio_features_data(playlist_list: list):
 
     return genre_frame.merge(
         audio_features, how="inner", left_index=True, right_index=True
-
     )
 
+
 def aggregate_genres(track_audio_data):
-    data = pd.DataFrame(columns=[col for col in track_audio_data.columns if not track_audio_data[col].isnull().any()])
+    data = pd.DataFrame(
+        columns=[
+            col
+            for col in track_audio_data.columns
+            if not track_audio_data[col].isnull().any()
+        ]
+    )
     for col in track_audio_data.columns:
         if track_audio_data[col].isnull().any():
-            data.loc[col] = track_audio_data[track_audio_data[col].notnull()].aggregate(func='mean')
+            data.loc[col] = track_audio_data[track_audio_data[col].notnull()].aggregate(
+                func="mean"
+            )
     return data
 
 
-
 if __name__ == "__main__":
-    pl = "4rnleEAOdmFAbRcNCgZMpY"
-    playlist_list = [pl]
-    audio = build_audio_features_data(playlist_list)
-
+    pl = "54nv8jbrm4JoHEZ49Qvjgl"
+    # playlist_list = [pl]
+    # audio = build_audio_features_data(playlist_list)
+    tracks = get_track_ids(pl)
+    print(len(tracks))
