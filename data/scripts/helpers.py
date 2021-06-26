@@ -15,13 +15,12 @@ load_dotenv()
 
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-APP_TOKEN = tk.request_client_token(CLIENT_ID, CLIENT_SECRET)
+
 AUTH_URL = "https://accounts.spotify.com/api/token"
-BASE_URL = "https://api.spotify.com/v1/"
+BASE_URL = "https://api.spotify.com/v1"
 
 
-spotify = tk.Spotify(APP_TOKEN)
-
+spotify = tk.Spotify()
 
 def get_token():
 
@@ -41,42 +40,58 @@ def get_token():
     # save the access token
     return auth_response_data["access_token"]
 
+TOKEN = get_token()
+HEADERS = {"Authorization":f"Bearer {TOKEN}"}
 
-def get_headers(token):
-    return {"Authorization": f"Bearer {token}"}
+spotify = tk.Spotify(token = TOKEN)
+
+def get_request(endpoint, uri, token):
+    headers = {"Authorization":f"Bearer {token}"}
+    r = requests.get(
+    "/".join(
+        [
+            BASE_URL,
+            endpoint,
+            uri
+        ]
+    ),
+    headers=headers)
+    if r.status_code == 200:
+        return r
+    raise r.raise_for_status()
+
 
 
 def get_track_ids(playlist_id):
 
-    trackset = []
-    token = get_token()
-    headers = get_headers(token)
+    trackset = set()
+    r = get_request("playlists",playlist_id,TOKEN).json()
+    
+   
+    r = r["tracks"]
+    
+   
+    while 1:
 
-    r = requests.get(
-        "".join(
-            [
-                BASE_URL,
-                "playlists/",
-                playlist_id,
-            ]
-        ),
-        headers=headers,
-    )
-    r = r.json()["tracks"]
 
-    while r["next"]:
+        
+        if len(r["items"]) < 100:
+            break
         try:
-            tracks = {t["track"]["id"] for t in r["items"]}
-            trackset.append(tracks)
+            tracks = (t["track"]["id"] for t in r["items"])
+            trackset.add(tracks)
+        #If response is None, this will throw type error
         except TypeError:
-            pass
-
-        r = requests.get(r["next"], headers=headers)
+            print("Broke early due to None response")
+            break
+        r = requests.get(r["next"], headers=HEADERS)
         if r.status_code == 200:
             r = r.json()
             continue
         raise r.raise_for_status()
 
+
+    
     return list(flatten(trackset))
 
 
@@ -117,16 +132,10 @@ def create_sample(track_id):
 # TODO
 # #Redo this without using tekore
 
-# def get_track_ids(playlist_id):
-
-#     playlist = spotify.playlist(playlist_id)
-#     tracks = playlist.tracks.items
-
-#     return [t.track.id for t in tracks]
 
 
 def get_album_ids(playlist_id):
-    playlist = spotify.playlist(playlist_id)
+    
     tracks = playlist.tracks.items
 
     return [t.track.album.id for t in tracks]
@@ -135,11 +144,15 @@ def get_album_ids(playlist_id):
 def get_artist_ids(playlist_id):
     """Returns : List of tuples - (track_id , artist_ids)"""
 
-    playlist = spotify.playlist(playlist_id)
-    tracks = playlist.tracks.items
-    track_ids = [t.track.id for t in tracks]
-    artists = [t.track.artists for t in tracks]
-    artists = [[a.id for a in artist] for artist in artists]
+    r = get_request("playlists", playlist_id, TOKEN)
+    if r.status_code != 200:
+        raise r.raise_for_status()
+
+    
+    tracks = r.json()["tracks"]["items"]
+    track_ids = [t["track"]["id"] for t in tracks]
+    artists = [t["track"]["artists"] for t in tracks]
+    artists = [[a["id"] for a in artist] for artist in artists]
 
     return dict(zip(track_ids, artists))
 
@@ -191,6 +204,8 @@ def get_audio_features(playlist_id):
     chunks = chunkerize(track_ids, 100)
 
     response_chunks = [spotify.tracks_audio_features(chunk) for chunk in chunks]
+    
+    
     return pd.DataFrame(flatten(response_chunks))
 
 
@@ -225,6 +240,9 @@ def build_audio_features_data(playlist_list: list):
     audio_features = pd.concat(
         [get_audio_features(playlist_id) for playlist_id in playlist_list]
     )
+    
+    
+    print(audio_features)
     audio_features.drop(
         columns=["analysis_url", "track_href", "type", "uri"], inplace=True
     )
@@ -236,25 +254,34 @@ def build_audio_features_data(playlist_list: list):
     )
 
 
-def aggregate_genres(track_audio_data):
-    data = pd.DataFrame(
-        columns=[
+def aggregate_genres(track_audio_data):    
+    
+  
+    
+    genre_cols =[
             col
             for col in track_audio_data.columns
-            if not track_audio_data[col].isnull().any()
+            if track_audio_data[col].isnull().any()
         ]
+
+    audio_cols = [col for col in track_audio_data.columns if col not in genre_cols ]
+    
+    data = pd.DataFrame(
+        columns=audio_cols
     )
-    for col in track_audio_data.columns:
-        if track_audio_data[col].isnull().any():
-            data.loc[col] = track_audio_data[track_audio_data[col].notnull()].aggregate(
-                func="mean"
+    for col in genre_cols:
+    
+        data.loc[col] = track_audio_data[track_audio_data[col].notnull()].aggregate(
+            func="mean"
             )
     return data
 
 
 if __name__ == "__main__":
-    pl = "54nv8jbrm4JoHEZ49Qvjgl"
-    # playlist_list = [pl]
-    # audio = build_audio_features_data(playlist_list)
+    pl ="4AoI1VZwQsSKFXSQnAgxtV"
+    playlist_list = [pl]
+    audio = build_audio_features_data(playlist_list)
     tracks = get_track_ids(pl)
-    print(len(tracks))
+    print(aggregate_genres(audio))
+    # df = get_audio_features(pl)
+    # print(df)
