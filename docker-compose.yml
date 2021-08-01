@@ -7,3 +7,15 @@ services:
       - "5000:5000"
     volumes:
       - ./api:/api
+  magenta: 
+    build: ./magenta-testing
+    volumes: 
+      - ./magenta-testing:/magenta
+      - C:/magenta:/magenta-data
+    ports: 
+      - 6006:6006
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - capabilities: [gpu]
